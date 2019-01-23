@@ -1,3 +1,5 @@
+#include "zc_socket_path.h"
+#include <arpa/inet.h>
 #include <errno.h>
 #include <memory.h>
 #include <netdb.h>
@@ -7,16 +9,37 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/event.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#define TRACE printf("%s\n", __PRETTY_FUNCTION__);
+struct zc_srv {
+  pthread_mutex_t acc_mutex;
+  pthread_mutexattr_t acc_mutex_attr;
+};
+struct zc_srv* g_srv;
 
-#include "zc_socket_path.h"
-
+static void s_accept_conn(int listener, int worker_id)
+{
+  TRACE
+  struct sockaddr_in c;
+  socklen_t socklen = sizeof(c);
+  int fd = accept(listener, (struct sockaddr*)&c, &socklen);
+  if (-1 == fd) {
+    perror("accept error. reason -> ");
+    exit(EXIT_FAILURE);
+  }
+  char buf[255] = { 0 };
+  socklen_t len = 255;
+  inet_ntop(AF_INET, &c.sin_addr, buf, len);
+  pid_t curr_pid = getpid();
+  printf("connected -> %s in worker with pid to be : {%d}\n", buf, curr_pid);
+}
 static void s_do_child_process(int listener, int worker_id)
 {
-  printf(" child started\n");
+  TRACE
   pthread_setname_np("viren-child-thread");
   int kq = kqueue();
   struct kevent changes[1];
@@ -24,15 +47,23 @@ static void s_do_child_process(int listener, int worker_id)
   EV_SET(&changes[0], listener, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, 0);
 
   while (1) {
-    //pthread_mutex_lock();
+    pthread_mutex_lock(&g_srv->acc_mutex);
     int nevents = kevent(kq, changes, 1, events, 1, NULL);
-
-    //pthread_mutex_unlock();
-
-    pthread_t tid;
+    pthread_mutex_unlock(&g_srv->acc_mutex);
 
     for (int i = 0; i < nevents; i++) {
-      printf("readable . i think now you accept not sure i=%d\n", i);
+      //printf("readable . i think now you accept not sure i=%d\n", i);
+      struct kevent ke = events[i];
+      if (ke.ident == listener) {
+        s_accept_conn(listener, kq);
+      } else {
+        if (ke.filter == EVFILT_READ) {
+          printf("read\n");
+        } else {
+          printf("ERRORR--- UN EXECPECT6EDCALL BOSS\n");
+        }
+      }
+
     } //end for
   } //end while
 
@@ -41,6 +72,7 @@ static void s_do_child_process(int listener, int worker_id)
 
 static void s_parent_waits(void)
 {
+  TRACE
   int wstatus;
   while (waitpid(WAIT_ANY, &wstatus, WNOHANG) == 0) {
   }
@@ -50,12 +82,14 @@ static void s_parent_waits(void)
 static pid_t worker_process_pid[ZC_MAX_WORKERS];
 static void s_kill_all_childs(void)
 {
+  TRACE
   for (int i = 0; i < ZC_MAX_WORKERS; i++) {
     pid_t kill_pid = worker_process_pid[i];
   }
 }
 static void s_spawn_workers(int listener, int num_workers)
 {
+  TRACE
   if (num_workers)
     for (int i = 0; i < num_workers; i++) {
       pid_t pid = fork();
@@ -74,8 +108,24 @@ static void s_spawn_workers(int listener, int num_workers)
     } //end for loop
   s_parent_waits();
 }
+static int s_create_shared_mem(void)
+{
+  TRACE
+  g_srv = (struct zc_srv*)mmap(NULL, sizeof(*g_srv), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+  if (!g_srv) {
+    return -1;
+  }
+  memset(g_srv, 0, sizeof(*g_srv));
+  pthread_mutexattr_init(&g_srv->acc_mutex_attr);
+  pthread_mutexattr_setpshared(&g_srv->acc_mutex_attr, PTHREAD_PROCESS_SHARED);
+  pthread_mutex_init(&g_srv->acc_mutex, &g_srv->acc_mutex_attr);
+  return 1;
+}
 extern void SERVER_start(void)
 {
+  TRACE
+  s_create_shared_mem();
+
   int listener = socket(AF_UNIX, SOCK_STREAM, 0);
   if (-1 == listener) {
     perror("socket error. reason ");
@@ -101,11 +151,4 @@ extern void SERVER_start(void)
 
   int num_workers = ZC_MAX_WORKERS;
   s_spawn_workers(listener, num_workers);
-
-  //  socklen_t len = sizeof(sa);
-  //  r = accept(listener, (struct sockaddr *)&sa, &len);
-  //  if (-1 == r) {
-  //    perror("accept error. reason ");
-  //    exit(EXIT_FAILURE);
-  //  }
 }
