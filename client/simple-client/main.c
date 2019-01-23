@@ -17,6 +17,7 @@
 
 int main(int argc, const char* argv[])
 {
+  printf("connecting...\n");
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (0 == fd) {
     perror("could not create socket\n");
@@ -35,6 +36,18 @@ int main(int argc, const char* argv[])
     exit(EXIT_FAILURE);
   }
 
-  printf("hello this is test client for tcp ip communication\n");
+  printf("connected.\n");
+
+  int userin_fd = STDIN_FILENO;
+  while (1) {
+    char msg[1024] = { 0 };
+    size_t msglen = sizeof(msg);
+    read(userin_fd, msg, msglen);
+
+    //write to server socket
+    size_t smsg_len = strlen(msg);
+    printf("smsg_len = %ld\n", smsg_len);
+    write(connected, msg, smsg_len);
+  }
   return 0;
 }

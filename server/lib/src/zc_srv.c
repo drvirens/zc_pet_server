@@ -21,7 +21,14 @@ struct zc_srv {
 };
 struct zc_srv* g_srv;
 
-static void s_accept_conn(int listener, int worker_id)
+static void s_read_conn(struct kevent ke, int worker_id)
+{
+  TRACE
+  char rbuf[1024] = { 0 };
+  int rbytes = read(ke.ident, rbuf, 1023);
+  printf("READ => [%d] ", rbytes);
+}
+static void s_accept_conn(int listener, int kq)
 {
   TRACE
   struct sockaddr_in c;
@@ -36,6 +43,10 @@ static void s_accept_conn(int listener, int worker_id)
   inet_ntop(AF_INET, &c.sin_addr, buf, len);
   pid_t curr_pid = getpid();
   printf("connected -> %s in worker with pid to be : {%d}\n", buf, curr_pid);
+
+  struct kevent changes_list[1];
+  EV_SET(&changes_list[0], fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, 0);
+  kevent(kq, changes_list, 1, NULL, 0, NULL);
 }
 static void s_do_child_process(int listener, int worker_id)
 {
@@ -59,6 +70,7 @@ static void s_do_child_process(int listener, int worker_id)
       } else {
         if (ke.filter == EVFILT_READ) {
           printf("read\n");
+          s_read_conn(ke, worker_id);
         } else {
           printf("ERRORR--- UN EXECPECT6EDCALL BOSS\n");
         }
