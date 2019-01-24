@@ -19,7 +19,7 @@ struct zc_srv {
   pthread_mutex_t acc_mutex;
   pthread_mutexattr_t acc_mutex_attr;
 };
-struct zc_srv* g_srv;
+static struct zc_srv* g_srv;
 
 static void s_read_conn(struct kevent ke, int worker_id)
 {

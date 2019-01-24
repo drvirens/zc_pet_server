@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#define ZN_SOCKET_PATH "/tmp/1-0-1"
+#define ZN_SOCKET_PATH "/tmp/1-0-11"
 
 #if defined __cplusplus
 }
